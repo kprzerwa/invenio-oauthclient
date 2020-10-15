@@ -71,10 +71,6 @@ from flask_babelex import gettext as _
 from flask_login import current_user
 from flask_principal import AnonymousIdentity, RoleNeed, UserNeed, \
     identity_changed, identity_loaded
-from flask_security.views import logout
-from invenio_accounts.config import \
-    ACCOUNTS_REST_AUTH_VIEWS as _ACCOUNTS_REST_AUTH_VIEWS
-from invenio_accounts.views.rest import LogoutView
 from invenio_db import db
 from jwt import decode
 
@@ -94,9 +90,6 @@ OAUTHCLIENT_CERN_OPENID_SESSION_KEY = "identity.cern_openid_provides"
 OAUTHCLIENT_CERN_OPENID_ALLOWED_ROLES = ["cern_user"]
 """CERN OAuth application role values that are allowed to be used."""
 
-_ACCOUNTS_REST_AUTH_VIEWS.update(
-    logout="invenio_oauthclient.contrib.cern_openid:CERNOpenIDLogoutView")
-ACCOUNTS_REST_AUTH_VIEWS = _ACCOUNTS_REST_AUTH_VIEWS
 
 BASE_APP = dict(
     title="CERN",
@@ -409,21 +402,3 @@ def on_identity_loaded(sender, identity):
         OAUTHCLIENT_CERN_OPENID_SESSION_KEY,
     )
     identity.provides.update(session.get(key, []))
-
-
-class CERNOpenIDLogoutView(LogoutView):
-    """Logout with redirect to logout page of the CERN OPENID provider."""
-
-    def logout_user(self):
-        """Return the logout response of flask-security."""
-        return logout()
-
-    def get(self):
-        """Logout a user."""
-        return self.logout_user()
-
-
-@cern_oauth_blueprint.route('/cern_openid/logout/')
-def logout_redirect():
-    """Redirect to the CERN OpenID logout."""
-    return redirect(current_app.config['OAUTH_REMOTE_REST_APP']['logout_url'])

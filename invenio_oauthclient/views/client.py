@@ -11,15 +11,17 @@
 from __future__ import absolute_import
 
 from flask import Blueprint, abort, current_app, flash, redirect, request, \
-    url_for
-from flask_oauthlib.client import OAuthException
+    url_for, app, jsonify, session
+from flask.views import MethodView
+from flask_login import current_user
+from flask_oauthlib.client import OAuthException, OAuthRemoteApp
+from flask_security import logout_user
 from invenio_db import db
 from itsdangerous import BadData
-from werkzeug.local import LocalProxy
 
 from .._compat import _create_identifier
 from ..errors import OAuthRemoteNotFound
-from ..handlers import set_session_next_url
+from ..handlers import set_session_next_url, token_session_key
 from ..handlers.rest import response_handler
 from ..proxies import current_oauthclient
 from ..utils import get_safe_redirect_target, serializer
@@ -31,7 +33,6 @@ blueprint = Blueprint(
     static_folder='../static',
     template_folder='../templates',
 )
-
 
 rest_blueprint = Blueprint(
     'invenio_oauthclient',
@@ -132,6 +133,7 @@ def _authorized(remote_app=None):
     set_session_next_url(remote_app, state['next'])
 
     handler = current_oauthclient.handlers[remote_app]()
+
     return handler
 
 
@@ -144,7 +146,7 @@ def authorized(remote_app=None):
         return abort(404)
     except (AssertionError, BadData):
         if current_app.config.get('OAUTHCLIENT_STATE_ENABLED', True) or (
-           not(current_app.debug or current_app.testing)):
+            not (current_app.debug or current_app.testing)):
             abort(403)
     except OAuthException as e:
         if e.type == 'invalid_response':
@@ -168,7 +170,7 @@ def rest_authorized(remote_app=None):
         abort(404)
     except (AssertionError, BadData):
         if current_app.config.get('OAUTHCLIENT_STATE_ENABLED', True) or (
-           not(current_app.debug or current_app.testing)):
+            not (current_app.debug or current_app.testing)):
             return response_handler(
                 None,
                 current_app.config[
@@ -176,8 +178,8 @@ def rest_authorized(remote_app=None):
                 payload=dict(
                     message="Invalid state.",
                     code=403
-                    )
                 )
+            )
     except OAuthException as e:
         if e.type == 'invalid_response':
             return response_handler(
@@ -251,3 +253,30 @@ def rest_disconnect(remote_app):
         return _disconnect(remote_app)
     except OAuthRemoteNotFound:
         abort(404)
+
+
+class OAuthLogoutView(MethodView):
+    """View to logout a user."""
+
+    def logout_user(self):
+        """Perform any logout actions."""
+        if current_user.is_authenticated:
+            logout_user()
+
+    def get(self):
+        """Logout user."""
+        current_remote_app = None
+        if current_user.is_authenticated:
+            oauth = current_oauthclient.oauth
+
+            for remote in oauth.remote_apps.values():
+                session_key = token_session_key(remote.name)
+                if session_key in session:
+                    current_remote_app = remote.name
+
+            self.logout_user()
+            if current_remote_app:
+                return redirect(
+                    current_app.config['OAUTHCLIENT_REST_REMOTE_APPS'][
+                        current_remote_app][
+                        'logout_url'])
